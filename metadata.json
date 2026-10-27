@@ -1,0 +1,6 @@
+{
+  "name": "NEXA Builder",
+  "description": "Premium mobile-first BYOK AI app builder running entirely in the browser with virtual file system, live preview, multi-provider AI streaming, and CodeMirror editor.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
