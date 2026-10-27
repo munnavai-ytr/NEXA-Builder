@@ -164,7 +164,7 @@ export function ChatPanel({
                     <p className="text-[10px] font-semibold tracking-wider uppercase text-slate-400">
                       Build Pipeline
                     </p>
-                    <div className="grid grid-cols-5 gap-1 text-[10px]">
+                    <div className="grid grid-cols-3 sm:grid-cols-6 gap-1 text-[10px]">
                       {msg.steps.map((st) => (
                         <div
                           key={st.id}
@@ -196,7 +196,7 @@ export function ChatPanel({
                 Executing Pipeline
               </span>
             </div>
-            <div className="grid grid-cols-5 gap-1 text-[10px]">
+            <div className="grid grid-cols-3 sm:grid-cols-6 gap-1 text-[10px]">
               {activeSteps.map((st) => (
                 <div
                   key={st.id}

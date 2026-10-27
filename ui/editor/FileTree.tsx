@@ -207,7 +207,7 @@ export function FileTree({
 
       {/* Tree List */}
       <div className="flex-1 overflow-y-auto py-2 px-1">
-        {tree.length === 0 ? (
+        {tree.filter((node) => node.name !== 'PROJECT_MEMORY.md').length === 0 ? (
           <div className="p-4 text-center text-xs text-slate-500">
             No files yet.
             <button
@@ -218,7 +218,9 @@ export function FileTree({
             </button>
           </div>
         ) : (
-          tree.map((node) => renderNode(node, 0))
+          tree
+            .filter((node) => node.name !== 'PROJECT_MEMORY.md')
+            .map((node) => renderNode(node, 0))
         )}
       </div>
     </div>

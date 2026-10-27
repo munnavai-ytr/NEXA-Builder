@@ -11,6 +11,7 @@ import {
   Save,
   Check,
   Code2,
+  Brain,
 } from 'lucide-react';
 import { useNexaStore } from '../../core/store';
 import { IdeTopBar } from './IdeTopBar';
@@ -37,6 +38,7 @@ export function IdePage() {
     isTerminalCollapsed,
     mobileActiveTab,
     selectFile,
+    openMemoryTab,
     closeTab,
     updateActiveContent,
     saveActiveFile,
@@ -115,8 +117,24 @@ export function IdePage() {
             {/* Code Editor Container */}
             <div className="flex-1 flex flex-col h-full overflow-hidden bg-[#070A12]">
               {/* Tab Bar */}
-              <div className="flex items-center justify-between h-9 bg-[#0C101D] border-b border-white/5 overflow-x-auto shrink-0 px-2 gap-1">
+              <div className="flex items-center justify-between h-9 bg-[#0C101D] border-b border-white/5 overflow-x-auto shrink-0 px-2 gap-2">
                 <div className="flex items-center gap-1 overflow-x-auto">
+                  {/* Memory Tab Button */}
+                  <button
+                    onClick={openMemoryTab}
+                    className={`flex items-center gap-1 px-2.5 h-7 rounded-md text-xs font-medium transition shrink-0 ${
+                      activeFilePath === 'PROJECT_MEMORY.md'
+                        ? 'bg-violet-600/25 text-violet-300 border border-violet-500/40 shadow-sm'
+                        : 'text-slate-400 hover:text-slate-200 hover:bg-white/5'
+                    }`}
+                    title="View and edit PROJECT_MEMORY.md (injected into agent pipeline)"
+                  >
+                    <Brain className="w-3.5 h-3.5 text-violet-400" />
+                    <span>Memory</span>
+                  </button>
+
+                  <div className="w-px h-4 bg-white/10 mx-1 shrink-0" />
+
                   {openTabs.map((tab) => {
                     const isActive = tab === activeFilePath;
                     const fileName = tab.split('/').pop() || tab;
@@ -124,7 +142,7 @@ export function IdePage() {
                       <div
                         key={tab}
                         onClick={() => selectFile(tab)}
-                        className={`flex items-center gap-1.5 px-3 h-7 rounded-md text-xs cursor-pointer transition select-none ${
+                        className={`flex items-center gap-1.5 px-3 h-7 rounded-md text-xs cursor-pointer transition select-none shrink-0 ${
                           isActive
                             ? 'bg-[#070A12] text-cyan-300 border border-white/10 font-medium'
                             : 'text-slate-400 hover:text-slate-200 hover:bg-white/5'
@@ -153,7 +171,7 @@ export function IdePage() {
                   <button
                     onClick={saveActiveFile}
                     disabled={!hasUnsavedChanges}
-                    className="flex items-center gap-1 px-2 py-1 text-[11px] font-medium text-slate-300 hover:text-white disabled:opacity-30 rounded hover:bg-white/5 transition"
+                    className="flex items-center gap-1 px-2.5 py-1 text-[11px] font-medium text-slate-300 hover:text-white disabled:opacity-30 rounded hover:bg-white/5 transition"
                     title="Save active file"
                   >
                     <Save className="w-3 h-3" />
@@ -186,13 +204,14 @@ export function IdePage() {
             </div>
           </div>
 
-          {/* Panel 3: Live Preview (Top) over Terminal (Bottom) (Right, 420px to flex) */}
+          {/* Panel 3: Live Preview (Top) over Terminal (Bottom) (Right, 440px to flex) */}
           <div className="w-[440px] xl:w-[480px] h-full flex flex-col shrink-0 overflow-hidden bg-[#070A12]">
             <div className="flex-1 overflow-hidden">
               <PreviewPanel
                 files={files}
                 projectName={activeProject.name}
                 refreshTrigger={previewRefreshTrigger}
+                onAskAiFix={(errMsg) => sendMessage(errMsg)}
               />
             </div>
             <TerminalPanel
@@ -201,6 +220,9 @@ export function IdePage() {
               isCollapsed={isTerminalCollapsed}
               onToggleCollapse={toggleTerminalCollapse}
               onRefreshPreview={triggerPreviewRefresh}
+              onCommandFailed={(cmd, err) =>
+                sendMessage(`Terminal command "${cmd}" failed with error:\n${err}\nPlease fix it.`)
+              }
             />
           </div>
         </div>
@@ -247,6 +269,14 @@ export function IdePage() {
                   Live Preview & Terminal
                 </button>
               </div>
+
+              <button
+                onClick={openMemoryTab}
+                className="flex items-center gap-1 px-2 py-1 text-xs text-violet-400 hover:bg-violet-500/10 rounded transition"
+              >
+                <Brain className="w-3.5 h-3.5" />
+                <span>Memory</span>
+              </button>
             </div>
 
             {tabletView === 'editor' ? (
@@ -279,6 +309,7 @@ export function IdePage() {
                     files={files}
                     projectName={activeProject.name}
                     refreshTrigger={previewRefreshTrigger}
+                    onAskAiFix={(errMsg) => sendMessage(errMsg)}
                   />
                 </div>
                 <TerminalPanel
@@ -287,6 +318,9 @@ export function IdePage() {
                   isCollapsed={isTerminalCollapsed}
                   onToggleCollapse={toggleTerminalCollapse}
                   onRefreshPreview={triggerPreviewRefresh}
+                  onCommandFailed={(cmd, err) =>
+                    sendMessage(`Terminal command "${cmd}" failed with error:\n${err}\nPlease fix it.`)
+                  }
                 />
               </div>
             )}
@@ -312,6 +346,16 @@ export function IdePage() {
 
           {mobileActiveTab === 'files' && (
             <div className="w-full h-full flex flex-col overflow-hidden bg-[#070A12]">
+              <div className="flex items-center justify-between px-3 h-8 bg-[#0C101D] border-b border-white/5">
+                <span className="text-[11px] font-semibold text-slate-400">PROJECT FILES</span>
+                <button
+                  onClick={openMemoryTab}
+                  className="flex items-center gap-1 text-[11px] text-violet-400"
+                >
+                  <Brain className="w-3 h-3" />
+                  <span>Memory</span>
+                </button>
+              </div>
               <div className="h-44 border-b border-white/10 overflow-y-auto">
                 <FileTree
                   tree={fileTree}
@@ -345,6 +389,7 @@ export function IdePage() {
                 files={files}
                 projectName={activeProject.name}
                 refreshTrigger={previewRefreshTrigger}
+                onAskAiFix={(errMsg) => sendMessage(errMsg)}
               />
             </div>
           )}
@@ -357,6 +402,9 @@ export function IdePage() {
                 isCollapsed={false}
                 onToggleCollapse={() => {}}
                 onRefreshPreview={triggerPreviewRefresh}
+                onCommandFailed={(cmd, err) =>
+                  sendMessage(`Terminal command "${cmd}" failed with error:\n${err}\nPlease fix it.`)
+                }
               />
             </div>
           )}

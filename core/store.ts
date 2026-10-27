@@ -15,12 +15,9 @@ import {
 } from './db';
 import { VirtualFS, FSNode } from './fs';
 import { NexaSettings, loadSettings, saveSettings } from './settings';
-import {
-  PROVIDER_INSTANCES,
-  buildSystemPrompt,
-  parseFileChangesFromText,
-  enhanceUserPrompt,
-} from '../ai/provider';
+import { enhanceUserPrompt } from '../ai/provider';
+import { NexaAgentPipeline } from '../ai/agent';
+import { getOrInitMemory, MEMORY_FILE_NAME } from '../ai/memory';
 
 interface NexaState {
   // Navigation & Settings
@@ -73,6 +70,7 @@ interface NexaState {
 
   // File Actions
   selectFile: (path: string) => Promise<void>;
+  openMemoryTab: () => Promise<void>;
   closeTab: (path: string) => void;
   updateActiveContent: (content: string) => void;
   saveActiveFile: () => Promise<void>;
@@ -160,6 +158,9 @@ export const useNexaStore = create<NexaState>((set, get) => ({
     await saveProject(newProject);
     await VirtualFS.populateTemplate(id, templateType);
 
+    // Initialize PROJECT_MEMORY.md
+    await getOrInitMemory(id, name, templateType);
+
     // Initial user message in DB
     const initialUserMsg: MessageRecord = {
       id: `msg_${Date.now()}`,
@@ -174,7 +175,7 @@ export const useNexaStore = create<NexaState>((set, get) => ({
     const projects = await getAllProjects();
     set({ projects });
 
-    // Open project and trigger generation if user entered custom idea
+    // Open project and trigger 6-stage autonomous agent execution
     await get().openProject(id);
     get().sendMessage(promptText);
 
@@ -190,9 +191,13 @@ export const useNexaStore = create<NexaState>((set, get) => ({
       const fileTree = await VirtualFS.listTree(projectId);
       const messages = await getProjectMessages(projectId);
 
-      // Default active file is index.html if exists, otherwise first file
-      let defaultFile = files.find((f) => f.path === 'index.html')?.path || files[0]?.path || '';
-      let defaultContent = files.find((f) => f.path === defaultFile)?.content || '';
+      // Ensure PROJECT_MEMORY.md exists
+      await getOrInitMemory(projectId, project.name, project.template);
+
+      // Default active file is index.html if exists, otherwise first non-memory file
+      const nonMemory = files.filter((f) => f.path !== MEMORY_FILE_NAME);
+      let defaultFile = nonMemory.find((f) => f.path === 'index.html')?.path || nonMemory[0]?.path || '';
+      let defaultContent = nonMemory.find((f) => f.path === defaultFile)?.content || '';
 
       set({
         currentView: 'ide',
@@ -268,6 +273,13 @@ export const useNexaStore = create<NexaState>((set, get) => ({
     }
   },
 
+  openMemoryTab: async () => {
+    const { activeProject } = get();
+    if (!activeProject) return;
+    await getOrInitMemory(activeProject.id, activeProject.name);
+    await get().selectFile(MEMORY_FILE_NAME);
+  },
+
   closeTab: (path) => {
     const { openTabs, activeFilePath } = get();
     const nextTabs = openTabs.filter((t) => t !== path);
@@ -334,7 +346,6 @@ export const useNexaStore = create<NexaState>((set, get) => ({
     const { activeProject } = get();
     if (!activeProject) return;
     const cleanPath = VirtualFS.normalizePath(path);
-    // In git/virtual fs, create a .gitkeep or placeholder inside folder
     await VirtualFS.writeFile(activeProject.id, `${cleanPath}/.keep`, '');
     const files = await getProjectFiles(activeProject.id);
     const fileTree = await VirtualFS.listTree(activeProject.id);
@@ -395,29 +406,18 @@ export const useNexaStore = create<NexaState>((set, get) => ({
   enhancePrompt: (text) => enhanceUserPrompt(text),
 
   sendMessage: async (text) => {
-    const { activeProject, settings, files, isStreaming } = get();
+    const { activeProject, settings, isStreaming } = get();
     if (!activeProject || isStreaming) return;
 
     // Check if user has an active key
     const currentKey = settings.apiKeys[settings.provider];
     if (!currentKey && settings.provider !== 'custom') {
-      // Friendly open settings with message
       get().openSettings(`Please set your ${settings.provider} API key to stream live AI responses.`);
       return;
     }
 
     const abortController = new AbortController();
     set({ isStreaming: true, abortController });
-
-    // Step pipeline
-    const initialSteps: PlanStep[] = [
-      { id: '1', name: 'Understand', status: 'running' },
-      { id: '2', name: 'Plan', status: 'pending' },
-      { id: '3', name: 'Build', status: 'pending' },
-      { id: '4', name: 'Review', status: 'pending' },
-      { id: '5', name: 'Fix', status: 'pending' },
-    ];
-    set({ activeSteps: initialSteps });
 
     // Save user message to DB
     const userMsg: MessageRecord = {
@@ -434,42 +434,13 @@ export const useNexaStore = create<NexaState>((set, get) => ({
     const assistantMsgId = `asst_${Date.now()}`;
     let accumulatedText = '';
 
-    const updateStep = (index: number, status: 'pending' | 'running' | 'completed' | 'failed') => {
-      set((state) => {
-        const nextSteps = [...state.activeSteps];
-        if (nextSteps[index]) {
-          nextSteps[index] = { ...nextSteps[index], status };
-        }
-        return { activeSteps: nextSteps };
-      });
-    };
+    const pipeline = new NexaAgentPipeline(activeProject.id, activeProject.name, settings);
 
     try {
-      // Step 1: Understand
-      await new Promise((r) => setTimeout(r, 400));
-      updateStep(0, 'completed');
-      updateStep(1, 'running');
-
-      // Step 2: Plan
-      await new Promise((r) => setTimeout(r, 400));
-      updateStep(1, 'completed');
-      updateStep(2, 'running');
-
-      // Build context
-      const currentFiles = await getProjectFiles(activeProject.id);
-      const systemPrompt = buildSystemPrompt(currentFiles);
-
-      const conversationHistory = get().messages.map((m) => ({
-        role: m.role,
-        content: m.content,
-      }));
-
-      const provider = PROVIDER_INSTANCES[settings.provider];
-      const stream = provider.streamChat(
-        [{ role: 'system', content: systemPrompt }, ...conversationHistory],
-        settings,
+      const result = await pipeline.execute(
+        text,
         {
-          signal: abortController.signal,
+          onStageChange: (steps) => set({ activeSteps: steps }),
           onChunk: (chunk) => {
             accumulatedText += chunk;
             set((state) => {
@@ -497,53 +468,27 @@ export const useNexaStore = create<NexaState>((set, get) => ({
               }
             });
           },
-        }
+          onFilesChanged: async () => {
+            const files = await getProjectFiles(activeProject.id);
+            const fileTree = await VirtualFS.listTree(activeProject.id);
+            set({ files, fileTree, previewRefreshTrigger: Date.now() });
+          },
+        },
+        abortController.signal
       );
-
-      for await (const _ of stream) {
-        // streaming handled in onChunk
-      }
-
-      // Step 3: Build -> parse file modifications
-      updateStep(2, 'completed');
-      updateStep(3, 'running');
-
-      const changes = parseFileChangesFromText(accumulatedText);
-      if (changes.length > 0) {
-        for (const ch of changes) {
-          if (ch.action === 'delete') {
-            await VirtualFS.deleteFile(activeProject.id, ch.path);
-          } else {
-            await VirtualFS.writeFile(activeProject.id, ch.path, ch.content);
-          }
-        }
-        // Refresh files and tree
-        const updatedFiles = await getProjectFiles(activeProject.id);
-        const updatedTree = await VirtualFS.listTree(activeProject.id);
-        set({
-          files: updatedFiles,
-          fileTree: updatedTree,
-          previewRefreshTrigger: Date.now(),
-        });
-      }
-
-      updateStep(3, 'completed');
-      updateStep(4, 'running');
-      await new Promise((r) => setTimeout(r, 300));
-      updateStep(4, 'completed');
 
       // Finalize assistant message with steps in DB
       const finalMsg: MessageRecord = {
         id: assistantMsgId,
         projectId: activeProject.id,
         role: 'assistant',
-        content: accumulatedText || 'Application updated successfully.',
+        content: result.text || accumulatedText || 'Application updated successfully.',
         time: Date.now(),
         steps: get().activeSteps,
       };
       await putMessage(finalMsg);
 
-      // Update project updated timestamp
+      // Update project timestamp
       await saveProject({ ...activeProject, updatedAt: Date.now() });
       const refreshedProjects = await getAllProjects();
 
@@ -555,7 +500,7 @@ export const useNexaStore = create<NexaState>((set, get) => ({
       });
     } catch (err: any) {
       if (err.name === 'AbortError') {
-        console.log('Stream stopped by user');
+        console.log('Pipeline stopped by user');
       } else {
         console.error('Error during AI generation:', err);
         const errorMsg: MessageRecord = {
