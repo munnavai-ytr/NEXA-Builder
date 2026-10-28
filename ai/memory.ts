@@ -28,6 +28,7 @@ A high-performance in-browser web application created with NEXA Builder.
 - React / Modern ES Modules
 - Tailwind CSS (v3/v4 utility classes)
 - Design Tokens (CSS Variables)
+- Custom in-browser esbuild-wasm bundler & dynamic import maps (MIT license)
 - Virtual File System & Client-Side Execution
 
 ## Folder/file map
